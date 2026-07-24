@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database import Base
@@ -32,6 +32,9 @@ class User(Base):
     review_mode: Mapped[str] = mapped_column(
         String(16), default="paired", server_default="paired", nullable=False
     )
+    # User-added topic seeds for grammar-practice generation (JSON list of strings).
+    # Sampled together with the built-in defaults; null = defaults only.
+    practice_topics: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

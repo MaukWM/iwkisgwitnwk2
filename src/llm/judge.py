@@ -66,6 +66,7 @@ async def judge(
     politeness: str,
     override_reasons: list[str] | None = None,
     grammar_points: dict[str, str] | None = None,
+    points_required: bool = False,
 ) -> JudgeResult:
     """Grade a submission against the reference + target politeness.
 
@@ -73,6 +74,8 @@ async def judge(
     (per-sentence memory). If the submission fits one, the judge should accept it.
     `grammar_points` (key → gloss) are the sentence's linked points — the judge emits a per-point
     verdict for each, attributing mistakes to specific patterns (vocab errors attribute to none).
+    `points_required` (practice items): the points are explicit targets — one the submission
+    doesn't use at all is also marked wrong, not just misused ones.
     Raises on API/parse failure (caller handles).
     """
     override_notes = (
@@ -82,6 +85,12 @@ async def judge(
         "\n".join(f"- {k} — {m}" for k, m in grammar_points.items())
         if grammar_points
         else "none"
+    )
+    points_mode = (
+        "These grammar points are REQUIRED TARGETS — the learner was asked to use each one "
+        "(see REQUIRED TARGETS mode)."
+        if points_required and grammar_points
+        else ""
     )
     completion = await get_client().chat.completions.parse(
         model=settings.judge_model,
@@ -96,6 +105,7 @@ async def judge(
                     politeness=politeness,
                     override_notes=override_notes,
                     grammar_points=points_block,
+                    points_mode=points_mode,
                 ),
             },
         ],

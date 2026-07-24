@@ -5,6 +5,7 @@ Prior learner overrides for THIS sentence (accept the submission if it fits one)
 {override_notes}
 Grammar points this sentence exercises (one verdict per point):
 {grammar_points}
+{points_mode}
 Learner's submission: {submitted}
 
 Judge the submission.

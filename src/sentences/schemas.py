@@ -207,6 +207,7 @@ class GrammarPointListItem(BaseModel):
     grammar_point_id: int = Field(..., gt=0)
     key: str
     meaning_en: str
+    practice: bool = Field(False, description="練習する — opted into the practice rotation")
     sentence_count: int = Field(..., ge=0)
     review_count: int = Field(0, ge=0, description="First-attempt reviews touching this point")
     correct_count: int = Field(0, ge=0, description="Of those, how many produced it correctly")
@@ -238,6 +239,7 @@ class GrammarPointDetailResponse(BaseModel):
     grammar_point_id: int = Field(..., gt=0)
     key: str
     meaning_en: str
+    practice: bool = Field(False, description="練習する — opted into the practice rotation")
     review_count: int = Field(0, ge=0)
     correct_count: int = Field(0, ge=0)
     created_at: datetime
@@ -245,10 +247,74 @@ class GrammarPointDetailResponse(BaseModel):
 
 
 class GrammarPointUpdateRequest(BaseModel):
-    """Rename a grammar point's key or gloss (fix a mis-minted extraction)."""
+    """Rename a grammar point's key or gloss (fix a mis-minted extraction), or toggle 練習する."""
 
     key: str | None = Field(None, min_length=1, max_length=100)
     meaning_en: str | None = Field(None, min_length=1, max_length=255)
+    practice: bool | None = Field(
+        None, description="Opt the point in/out of the practice rotation (flag only ADDS — "
+        "an unflagged point still rotates in via weak/recent-failure evidence)"
+    )
+
+
+class PracticeTargetItem(BaseModel):
+    """A target grammar point of a practice item (joined live — renames stay visible)."""
+
+    grammar_point_id: int = Field(..., gt=0)
+    key: str
+    meaning_en: str
+
+
+class PracticeItem(BaseModel):
+    """A pending practice item. Omits `japanese` — the user must produce it."""
+
+    practice_id: int = Field(..., gt=0)
+    english: str = Field(..., description="The English prompt to translate")
+    politeness: Politeness = Field(..., description="Always mixed for practice items")
+    targets: list[PracticeTargetItem] = Field(..., description="Grammar points to exercise")
+    created_at: datetime
+
+
+class PracticeQueueResponse(BaseModel):
+    """The practice queue. Fetching lazily tops it up (cap + interval permitting)."""
+
+    items: list[PracticeItem]
+    count: int
+    bonus_available: bool = Field(
+        ..., description="Queue is empty — the user may request a bonus item"
+    )
+
+
+class PracticeReviewCreateRequest(BaseModel):
+    """Submit a written attempt at a practice item."""
+
+    submitted: str = Field(..., min_length=1, description="The user's Japanese attempt")
+
+
+class PracticeReviewResponse(BaseModel):
+    """Outcome of a practice attempt. Only the first attempt scores (`scored`)."""
+
+    practice_id: int = Field(..., gt=0)
+    correct: bool
+    exact_match: bool
+    feedback: str | None
+    reference: str = Field(..., description="The reference Japanese, revealed after submission")
+    scored: bool = Field(..., description="This was the first attempt — point rows were logged")
+    done: bool = Field(..., description="Item completed (correct answer)")
+    point_results: list["SentencePointResult"] = Field(default_factory=list)
+
+
+class PracticeTopicsUpdateRequest(BaseModel):
+    """Replace the user's custom topic seeds (defaults are fixed)."""
+
+    topics: list[str] = Field(..., description="Custom topic strings; empty list clears them")
+
+
+class PracticeTopicsResponse(BaseModel):
+    """Generation topic seeds: built-in defaults + the user's own."""
+
+    defaults: list[str]
+    custom: list[str]
 
 
 class SentencePointResult(BaseModel):

@@ -25,6 +25,11 @@ Grammar-point verdicts:
 - A point is wrong ONLY when the mistake is in that pattern itself (its particle, conjugation, or
   usage). Vocabulary choice, spelling, or unrelated mistakes do NOT make a point wrong — a
   submission can be incorrect overall with no listed point at fault.
+- REQUIRED TARGETS mode: when the user message says the listed points are required targets, the
+  learner was explicitly asked to use each one. A point the submission does not exercise at all is
+  then ALSO wrong (ok=false, feedback noting the pattern was not used) — "validly avoided" does not
+  apply. Overall correctness is still judged normally: a natural, correct sentence that skips a
+  required target is correct overall, with only that point marked wrong.
 - Each emitted verdict's `feedback` = ONE short ENGLISH line (aim ≤15 words): the learner's
   broken fragment in 「…」 + the rule violated. No examples, no elaboration — the overall
   feedback carries the teaching.

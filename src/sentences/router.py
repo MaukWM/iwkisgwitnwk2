@@ -10,12 +10,18 @@ from src.auth.models import User
 from src.core.rate_limit import limiter
 from src.database import get_db
 from src.logging import logger
+from src.sentences.practice import PracticeService
 from src.sentences.schemas import (
     DueSentencesResponse,
     GrammarPointDetailResponse,
     GrammarPointListItem,
     GrammarPointListResponse,
     GrammarPointUpdateRequest,
+    PracticeQueueResponse,
+    PracticeReviewCreateRequest,
+    PracticeReviewResponse,
+    PracticeTopicsResponse,
+    PracticeTopicsUpdateRequest,
     SentenceCreateRequest,
     SentenceCreateResponse,
     SentenceDetailResponse,
@@ -563,4 +569,178 @@ async def update_grammar_point(
         raise HTTPException(
             status_code=500,
             detail="An error occurred while updating the grammar point. Please try again later.",
+        ) from e
+
+
+# --- Grammar practice (/me/practice) ------------------------------------------------------------
+# Own prefix (NOT under /me/sentences — the /{sentence_id} int route would swallow "practice").
+# Same access gate: practice exists only on top of the sentence/grammar layer.
+practice_router = APIRouter(
+    prefix="/me/practice",
+    tags=["practice"],
+    dependencies=[Depends(require_sentences_access)],
+)
+
+
+@practice_router.get("", response_model=PracticeQueueResponse)
+@limiter.limit(settings.rate_limit_llm)
+async def get_practice_queue(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PracticeQueueResponse:
+    """Pending practice items; lazily generates a batch when there's room + the interval passed."""
+    try:
+        service = PracticeService(db)
+        return await service.get_queue(user_id=current_user.id)
+    except SQLAlchemyError as e:
+        logger.error(
+            "database_error_in_get_practice_queue_endpoint",
+            user_id=current_user.id,
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while retrieving the practice queue. Please try again later.",
+        ) from e
+
+
+@practice_router.post("/bonus", response_model=PracticeQueueResponse, status_code=200)
+@limiter.limit(settings.rate_limit_llm)
+async def generate_bonus_practice(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PracticeQueueResponse:
+    """Generate one extra practice item on demand (empty-queue button). Respects the cap."""
+    try:
+        service = PracticeService(db)
+        return await service.generate_bonus(user_id=current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except SQLAlchemyError as e:
+        logger.error(
+            "database_error_in_generate_bonus_practice_endpoint",
+            user_id=current_user.id,
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while generating the practice item. Please try again later.",
+        ) from e
+
+
+@practice_router.get("/topics", response_model=PracticeTopicsResponse)
+@limiter.limit(settings.rate_limit_read)
+async def get_practice_topics(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PracticeTopicsResponse:
+    """Generation topic seeds: built-in defaults + the user's own additions."""
+    service = PracticeService(db)
+    return await service.get_topics(user_id=current_user.id)
+
+
+@practice_router.put("/topics", response_model=PracticeTopicsResponse)
+@limiter.limit(settings.rate_limit_write)
+async def set_practice_topics(
+    request: Request,
+    payload: PracticeTopicsUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PracticeTopicsResponse:
+    """Replace the user's custom topic seeds (defaults are fixed)."""
+    try:
+        service = PracticeService(db)
+        return await service.set_topics(user_id=current_user.id, topics=payload.topics)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except SQLAlchemyError as e:
+        logger.error(
+            "database_error_in_set_practice_topics_endpoint",
+            user_id=current_user.id,
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while saving topics. Please try again later.",
+        ) from e
+
+
+@practice_router.post(
+    "/{practice_id}/reviews", response_model=PracticeReviewResponse, status_code=200
+)
+@limiter.limit(settings.rate_limit_llm)
+async def submit_practice_review(
+    request: Request,
+    practice_id: int,
+    payload: PracticeReviewCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PracticeReviewResponse:
+    """Judge an attempt. First attempt scores the target points; a correct attempt completes it."""
+    try:
+        service = PracticeService(db)
+        return await service.submit(
+            user_id=current_user.id, practice_id=practice_id, submitted=payload.submitted
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (OpenAIError, RuntimeError) as e:
+        logger.warning(
+            "llm_error_in_submit_practice_review_endpoint",
+            user_id=current_user.id,
+            practice_id=practice_id,
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Grading service unavailable — nothing was recorded. Please try again.",
+        ) from e
+    except SQLAlchemyError as e:
+        logger.error(
+            "database_error_in_submit_practice_review_endpoint",
+            user_id=current_user.id,
+            practice_id=practice_id,
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while submitting the attempt. Please try again later.",
+        ) from e
+
+
+@practice_router.post("/{practice_id}/complete", status_code=204)
+@limiter.limit(settings.rate_limit_write)
+async def complete_practice_item(
+    request: Request,
+    practice_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Escape hatch: mark the item done without judging (「正解として進む」). Idempotent."""
+    try:
+        service = PracticeService(db)
+        await service.complete(user_id=current_user.id, practice_id=practice_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except SQLAlchemyError as e:
+        logger.error(
+            "database_error_in_complete_practice_item_endpoint",
+            user_id=current_user.id,
+            practice_id=practice_id,
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while completing the item. Please try again later.",
         ) from e

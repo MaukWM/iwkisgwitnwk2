@@ -527,6 +527,7 @@ class SentenceService:
                 grammar_point_id=point.id,
                 key=point.key,
                 meaning_en=point.meaning_en,
+                practice=point.practice,
                 sentence_count=count,
                 review_count=accuracy.get(point.id, (0, 0))[0],
                 correct_count=accuracy.get(point.id, (0, 0))[1],
@@ -570,6 +571,7 @@ class SentenceService:
             grammar_point_id=point.id,
             key=point.key,
             meaning_en=point.meaning_en,
+            practice=point.practice,
             review_count=review_count,
             correct_count=correct_count,
             created_at=point.created_at,
@@ -611,6 +613,8 @@ class SentenceService:
             point.key = request.key
         if request.meaning_en is not None:
             point.meaning_en = request.meaning_en
+        if request.practice is not None:
+            point.practice = request.practice
         await self.db.commit()
 
         count = (
@@ -628,6 +632,7 @@ class SentenceService:
             grammar_point_id=point.id,
             key=point.key,
             meaning_en=point.meaning_en,
+            practice=point.practice,
             sentence_count=count,
             review_count=review_count,
             correct_count=correct_count,

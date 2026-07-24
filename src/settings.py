@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     # OpenAI-compatible server, etc. Only these three env vars change to switch providers.
     openai_api_key: str = ""
     judge_model: str = "gpt-5.5"
+    # Grammar-practice sentence generation (easier task than judging → smaller model).
+    practice_model: str = "gpt-5-mini"
     llm_base_url: str | None = None  # None = OpenAI default endpoint
 
     # Rate limiting (slowapi), per account. Tuned to never bother normal use but hard-stop
