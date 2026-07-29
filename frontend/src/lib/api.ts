@@ -270,7 +270,7 @@ export const api = {
 
   getGrammarPoint: (id: number) => request<GrammarPointDetail>(`/me/grammar/${id}`),
 
-  updateGrammarPoint: (id: number, data: { key?: string; meaning_en?: string }) =>
+  updateGrammarPoint: (id: number, data: { key?: string; meaning_en?: string; practice?: boolean }) =>
     request<GrammarPointListItem>(`/me/grammar/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -286,6 +286,21 @@ export const api = {
     requestNoBody(`/me/sentences/${sentenceId}/grammar/${grammarPointId}`, {
       method: 'DELETE',
     }),
+
+  // Grammar practice (generated one-shot items; fetching lazily tops up the queue)
+  getPracticeQueue: () => request<PracticeQueue>('/me/practice'),
+
+  bonusPractice: () => request<PracticeQueue>('/me/practice/bonus', { method: 'POST' }),
+
+  submitPracticeReview: (practiceId: number, submitted: string) =>
+    request<PracticeReviewResult>(`/me/practice/${practiceId}/reviews`, {
+      method: 'POST',
+      body: JSON.stringify({ submitted }),
+    }),
+
+  // Escape hatch: mark done without judging (the first attempt already scored).
+  completePractice: (practiceId: number) =>
+    requestNoBody(`/me/practice/${practiceId}/complete`, { method: 'POST' }),
 
   // Lessons
   completeLessons: (data: { item_ids: { item_type: string; item_id: number }[] }) =>
@@ -541,6 +556,7 @@ export interface GrammarPointListItem {
   grammar_point_id: number;
   key: string;
   meaning_en: string;
+  practice: boolean; // 練習する — opted into the practice rotation
   sentence_count: number;
   review_count: number;
   correct_count: number;
@@ -559,10 +575,43 @@ export interface GrammarPointDetail {
   grammar_point_id: number;
   key: string;
   meaning_en: string;
+  practice: boolean;
   review_count: number;
   correct_count: number;
   created_at: string;
   sentences: GrammarSentenceItem[];
+}
+
+// Grammar practice — generated one-shot items targeting specific grammar points.
+export interface PracticeTargetItem {
+  grammar_point_id: number;
+  key: string;
+  meaning_en: string;
+}
+
+export interface PracticeItem {
+  practice_id: number;
+  english: string;
+  politeness: Politeness; // always 'mixed' for practice items
+  targets: PracticeTargetItem[];
+  created_at: string;
+}
+
+export interface PracticeQueue {
+  items: PracticeItem[];
+  count: number;
+  bonus_available: boolean; // queue empty — the user may request a bonus item
+}
+
+export interface PracticeReviewResult {
+  practice_id: number;
+  correct: boolean;
+  exact_match: boolean;
+  feedback: string | null;
+  reference: string;
+  scored: boolean; // this was the first (scoring) attempt
+  done: boolean;
+  point_results: SentencePointResult[];
 }
 
 export interface SentenceDetail extends SentenceListItem {

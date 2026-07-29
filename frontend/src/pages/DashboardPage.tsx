@@ -16,10 +16,12 @@ import { SrsSpread } from '../components/SrsSpread';
 function StatGroup({
   label,
   accent,
+  cols = 2,
   children,
 }: {
   label: string;
   accent: string;
+  cols?: 2 | 3;
   children: ReactNode;
 }) {
   return (
@@ -30,7 +32,12 @@ function StatGroup({
         </span>
         <span className={cn('h-0.5 flex-1', accent)} />
       </div>
-      <div className="grid grid-cols-2 divide-x-2 divide-border border-2 border-border">
+      <div
+        className={cn(
+          'grid divide-x-2 divide-border border-2 border-border',
+          cols === 3 ? 'grid-cols-3' : 'grid-cols-2',
+        )}
+      >
         {children}
       </div>
     </section>
@@ -123,6 +130,13 @@ export function DashboardPage() {
     queryKey: ['sentenceReviews'],
     queryFn: api.getDueSentences,
   });
+  // Lazily tops up the queue server-side — first fetch after the interval may take a few
+  // seconds while items generate; the tile just fills in when ready.
+  const practiceQueue = useQuery({
+    queryKey: ['practiceQueue'],
+    queryFn: api.getPracticeQueue,
+    enabled: canSentences,
+  });
   const progress = useQuery({ queryKey: ['progress'], queryFn: () => api.getProgress() });
   const wanikani = useQuery({
     queryKey: ['wanikani-status'],
@@ -145,6 +159,7 @@ export function DashboardPage() {
   const lessonCount = queue.data?.filter((i) => !i.locked).length ?? 0;
   const sentenceLessonCount = sentenceLessons.data?.length ?? 0;
   const sentenceReviewCount = sentenceReviews.data?.length ?? 0;
+  const practiceCount = practiceQueue.data?.count ?? 0;
   const wkConfigured = wanikani.data?.configured ?? false;
   const wkDue = wanikani.data?.reviews_due ?? 0;
   // Without a WK key only "this site" is meaningful.
@@ -201,9 +216,10 @@ export function DashboardPage() {
           <StatTile to="/reviews" count={reviewCount} label="復習" />
         </StatGroup>
         {canSentences && (
-          <StatGroup label="作文" accent="bg-wk-sentence">
+          <StatGroup label="作文" accent="bg-wk-sentence" cols={3}>
             <StatTile to="/sentences/lessons" count={sentenceLessonCount} label="レッスン" />
             <StatTile to="/sentences/review" count={sentenceReviewCount} label="復習" />
+            <StatTile to="/practice" count={practiceCount} label="文法練習" />
           </StatGroup>
         )}
       </div>

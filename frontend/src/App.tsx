@@ -16,6 +16,7 @@ import { GrammarPage } from './pages/GrammarPage';
 import { GrammarDetailPage } from './pages/GrammarDetailPage';
 import { SentenceLessonsPage } from './pages/SentenceLessonsPage';
 import { SentenceReviewPage } from './pages/SentenceReviewPage';
+import { PracticeReviewPage } from './pages/PracticeReviewPage';
 import { LessonsPage } from './pages/LessonsPage';
 import { ReviewPage } from './pages/ReviewPage';
 import { AccountPage } from './pages/AccountPage';
@@ -56,6 +57,7 @@ function ProtectedRoutes() {
       <Route path="reviews" element={<ReviewPage />} />
       <Route path="sentences/lessons" element={sentenceEl(<SentenceLessonsPage />)} />
       <Route path="sentences/review" element={sentenceEl(<SentenceReviewPage />)} />
+      <Route path="practice" element={sentenceEl(<PracticeReviewPage />)} />
     </Routes>
   );
 }

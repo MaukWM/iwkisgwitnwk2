@@ -70,6 +70,11 @@ export function GrammarPage() {
                 {p.meaning_en}
               </span>
               <span className="ml-auto flex shrink-0 items-center gap-2">
+                {p.practice && (
+                  <span className="border border-wk-sentence/40 px-1.5 py-0.5 font-mono text-[10px] text-wk-sentence">
+                    練習中
+                  </span>
+                )}
                 <AccuracyBadge correct={p.correct_count} total={p.review_count} />
                 <span className="bg-wk-sentence/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-wk-sentence">
                   {p.sentence_count}文

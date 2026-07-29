@@ -44,6 +44,16 @@ export function GrammarDetailPage() {
     setEditing(true);
   };
 
+  // 練習する: opt the point into the practice rotation. Only ADDS — an unflagged point
+  // still rotates in when weak or recently failed.
+  const practiceMut = useMutation({
+    mutationFn: () => api.updateGrammarPoint(pointId, { practice: !p?.practice }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['grammarPoint', pointId] });
+      queryClient.invalidateQueries({ queryKey: ['grammarPoints'] });
+    },
+  });
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="flex items-center justify-between">
@@ -55,9 +65,20 @@ export function GrammarDetailPage() {
           文法
         </Link>
         {p && !editing && (
-          <Button variant="outline" size="sm" onClick={startEdit}>
-            編集
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={p.practice ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => practiceMut.mutate()}
+              disabled={practiceMut.isPending}
+              title="練習ローテーションに含める（外しても弱い項目は自動で出ます）"
+            >
+              {p.practice ? '練習中 ✓' : '練習する'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={startEdit}>
+              編集
+            </Button>
+          </div>
         )}
       </div>
 
