@@ -30,15 +30,19 @@ class GeneratedPractice(BaseModel):
 async def generate_practice(
     targets: dict[str, str],
     bank: dict[str, tuple[str, int]],
+    learner_sentences: list[str],
     history: list[str],
     topic: str,
     vocab: list[str],
+    rejections: list[tuple[str, str]],
 ) -> GeneratedPractice:
     """Generate one practice item exercising `targets` (key → gloss).
 
     `bank` is the learner's grammar bank as key → (gloss, sentence_count) — context on what
-    they have explicit practice material for (NOT a level ceiling). `history` recent Japanese
-    practice sentences for the same target (must differ), `vocab` candidate bait words.
+    they have explicit practice material for (NOT a level ceiling). `learner_sentences` are
+    the learner's own production sentences — the vocabulary-level anchor. `history` recent
+    Japanese practice sentences for the same target (must differ), `vocab` candidate bait
+    words. `rejections` are recently rejected (japanese, reason) pairs — hard avoid-context.
     Raises on API/parse failure (caller handles).
     """
     completion = await get_client().chat.completions.parse(
@@ -52,11 +56,21 @@ async def generate_practice(
                     bank="\n".join(
                         f"- {k} — {gloss} ({n}×)" for k, (gloss, n) in bank.items()
                     ),
+                    learner_sentences=(
+                        "\n".join(f"- {s}" for s in learner_sentences)
+                        if learner_sentences
+                        else "(none yet)"
+                    ),
                     history=(
                         "\n".join(f"- {h}" for h in history) if history else "(none yet)"
                     ),
                     topic=topic,
                     vocab="\n".join(f"- {w}" for w in vocab) if vocab else "(none)",
+                    rejections=(
+                        "\n".join(f"- {jp}\n  → {reason}" for jp, reason in rejections)
+                        if rejections
+                        else "(none)"
+                    ),
                 ),
             },
         ],

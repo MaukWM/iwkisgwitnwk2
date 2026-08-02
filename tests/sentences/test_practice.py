@@ -385,6 +385,95 @@ async def test_complete_escape_marks_done_without_logging(db_session) -> None:
     await service.complete(user.id, item.id)  # idempotent
 
 
+# --- reject ----------------------------------------------------------------------------------
+
+
+async def test_reject_stores_reason_without_generating(db_session, monkeypatch) -> None:
+    user = await _user(db_session)
+    point = await _point(db_session, user, "〜んです")
+    item = await _seed_item(db_session, user, [point])
+    calls: list = []
+    monkeypatch.setattr("src.sentences.practice.generate_practice", _fake_generate(calls))
+
+    await PracticeService(db_session).reject(user.id, item.id, "  loanword soup  ")
+
+    assert item.status == "rejected"
+    assert item.reject_reason == "loanword soup"
+    assert item.completed_at is not None
+    assert calls == []  # instant: no LLM call — the queue refills on the next fetch
+
+
+async def test_reject_feeds_reasons_into_generation(db_session, monkeypatch) -> None:
+    user = await _user(db_session)
+    point = await _point(db_session, user, "〜んです")
+    rejected = await _seed_item(db_session, user, [point])
+    rejected.status = "rejected"
+    rejected.reject_reason = "too many unknown words"
+    rejected.completed_at = NOW
+    await db_session.flush()
+    calls: list = []
+    monkeypatch.setattr("src.sentences.practice.generate_practice", _fake_generate(calls))
+
+    await PracticeService(db_session).generate_bonus(user.id)
+
+    assert calls[0]["rejections"] == [("食べたんです", "too many unknown words")]
+    assert "食べたんです" not in calls[0]["history"]  # rejected excluded from anti-rote history
+
+
+async def test_generation_feeds_learner_sentences_as_anchor(db_session, monkeypatch) -> None:
+    user = await _user(db_session)
+    await _point(db_session, user, "〜んです")
+    db_session.add(
+        ProductionSentence(
+            user_id=user.id, english="e", japanese="猫が好きなんです", politeness=Politeness.CASUAL
+        )
+    )
+    await db_session.flush()
+    calls: list = []
+    monkeypatch.setattr("src.sentences.practice.generate_practice", _fake_generate(calls))
+
+    await PracticeService(db_session).generate_bonus(user.id)
+
+    assert calls[0]["learner_sentences"] == ["猫が好きなんです"]
+
+
+async def test_reject_on_done_item_400_and_not_owner_404(db_session) -> None:
+    user = await _user(db_session)
+    other = await _user(db_session)
+    point = await _point(db_session, user, "〜んです")
+    item = await _seed_item(db_session, user, [point])
+
+    with pytest.raises(LookupError):
+        await PracticeService(db_session).reject(other.id, item.id, "nope")
+
+    item.status = "done"
+    await db_session.flush()
+    with pytest.raises(ValueError, match="completed"):
+        await PracticeService(db_session).reject(user.id, item.id, "nope")
+
+
+async def test_submit_on_rejected_item_refused(db_session) -> None:
+    user = await _user(db_session)
+    point = await _point(db_session, user, "〜んです")
+    item = await _seed_item(db_session, user, [point])
+    item.status = "rejected"
+    await db_session.flush()
+
+    with pytest.raises(ValueError, match="completed"):
+        await PracticeService(db_session).submit(user.id, item.id, "食べたんです")
+
+
+async def test_complete_never_revives_rejected(db_session) -> None:
+    user = await _user(db_session)
+    point = await _point(db_session, user, "〜んです")
+    item = await _seed_item(db_session, user, [point])
+    item.status = "rejected"
+    await db_session.flush()
+
+    await PracticeService(db_session).complete(user.id, item.id)
+    assert item.status == "rejected"
+
+
 # --- topics ----------------------------------------------------------------------------------
 
 

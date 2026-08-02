@@ -285,6 +285,12 @@ class PracticeQueueResponse(BaseModel):
     )
 
 
+class PracticeRejectRequest(BaseModel):
+    """Reject a generated practice item, with a why (fed back into future generations)."""
+
+    reason: str = Field(..., min_length=1, description="Why this sentence is bad")
+
+
 class PracticeReviewCreateRequest(BaseModel):
     """Submit a written attempt at a practice item."""
 

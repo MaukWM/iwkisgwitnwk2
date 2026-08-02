@@ -5,6 +5,7 @@ import { api, type PracticeItem, type PracticeReviewResult } from '../lib/api';
 import { QuizShell } from '../components/QuizShell';
 import { SentenceInput, ReferenceBlock, FeedbackBlock, GREEN_TINT } from '../components/SentenceQuiz';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 // Grammar practice (文法練習): generated one-shot items targeting specific grammar points.
@@ -58,6 +59,8 @@ export function PracticeReviewPage() {
   const [correctCount, setCorrectCount] = useState(0);
   const [wrongCount, setWrongCount] = useState(0);
   const [adoptedIds, setAdoptedIds] = useState<Set<number>>(new Set());
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const judgedAt = useRef(0); // guards the submit-Enter from also advancing
 
@@ -99,6 +102,23 @@ export function PracticeReviewPage() {
     },
   });
 
+  // Reject a bad generated sentence with a why — the reason steers future generations.
+  // Instant (no replacement is generated); all cards for the rejected id (incl. queued
+  // retries) are dropped and the session continues with the rest.
+  const rejectMutation = useMutation({
+    mutationFn: () => api.rejectPractice(card.item.practice_id, rejectReason.trim()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['practiceQueue'] });
+      const id = card.item.practice_id;
+      // Removing already-passed cards with this id (an answered first attempt) shifts the
+      // current position — compensate so no card is skipped.
+      const removedBefore = cards.slice(0, index).filter((c) => c.item.practice_id === id).length;
+      setCards((prev) => prev.filter((c) => c.item.practice_id !== id));
+      setIndex((i) => i - removedBefore);
+      reset();
+    },
+  });
+
   // Empty queue → the user can request one bonus item.
   const bonusMutation = useMutation({
     mutationFn: api.bonusPractice,
@@ -126,7 +146,10 @@ export function PracticeReviewPage() {
   const reset = () => {
     setResult(null);
     setInput('');
+    setRejectOpen(false);
+    setRejectReason('');
     adoptMutation.reset(); // don't leak an adopt error/pending state onto the next card
+    rejectMutation.reset();
   };
 
   const requeueRetry = () => {
@@ -160,6 +183,7 @@ export function PracticeReviewPage() {
       if (
         e.key === 'Enter' &&
         !(e.target instanceof HTMLTextAreaElement) &&
+        !(e.target instanceof HTMLInputElement) &&
         Date.now() - judgedAt.current > 250
       ) {
         advance();
@@ -360,6 +384,61 @@ export function PracticeReviewPage() {
             {(submitMutation.error as Error).message}
           </p>
         )}
+
+        {/* Reject a bad generated sentence (unknown vocab, loanword soup, unnatural...) —
+            the reason is fed to future generations; a replacement arrives immediately. */}
+        <div className="pt-8">
+          {rejectOpen ? (
+            <div className="space-y-2">
+              <Input
+                autoFocus
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="なぜダメ？（例：知らない単語が多すぎる）— 次回の生成に反映されます"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && rejectReason.trim() && !rejectMutation.isPending) {
+                    e.stopPropagation();
+                    rejectMutation.mutate();
+                  }
+                }}
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setRejectOpen(false)}
+                  disabled={rejectMutation.isPending}
+                >
+                  キャンセル
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => rejectMutation.mutate()}
+                  disabled={!rejectReason.trim() || rejectMutation.isPending}
+                >
+                  {rejectMutation.isPending ? '却下中…' : '却下する'}
+                </Button>
+              </div>
+              {rejectMutation.isError && (
+                <p className="text-right text-xs text-destructive">
+                  {(rejectMutation.error as Error).message}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground/60"
+                onClick={() => setRejectOpen(true)}
+              >
+                この文を却下
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </QuizShell>
   );

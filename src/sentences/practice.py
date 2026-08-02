@@ -23,6 +23,7 @@ from src.sentences.models import (
     GrammarPoint,
     GrammarPointReviewLog,
     PracticeSentence,
+    ProductionSentence,
     SentenceGrammarPoint,
 )
 from src.sentences.schemas import (
@@ -45,6 +46,8 @@ MIN_REVIEWS = 3  # reviews a point needs before "weak" is meaningful
 WEAK_BOTTOM_N = 5  # how many worst-accuracy points feed the pool
 HISTORY_PER_POINT = 15  # recent same-target sentences fed as anti-rote context
 VOCAB_BAIT = 5  # candidate words sampled per generation
+REJECTIONS_FED = 10  # recent rejected sentences (+ reasons) fed as avoid-context
+LEARNER_SAMPLE = 15  # of the learner's own sentences fed as the vocabulary-level anchor
 
 DEFAULT_TOPICS = [
     "daily life at home",
@@ -101,6 +104,24 @@ class PracticeService:
         pending = await self._pending(user_id)
         items = await self._to_items(pending)
         return PracticeQueueResponse(items=items, count=len(items), bonus_available=False)
+
+    async def reject(self, user_id: int, practice_id: int, reason: str) -> None:
+        """Reject a generated item with a why. Instant — no LLM call.
+
+        The reason is stored and fed into future generations as avoid-context. No replacement
+        is generated here (that would block the user on an LLM call mid-session) — the queue
+        refills on the next fetch, and the bonus button covers "give me one now". Raises
+        LookupError (→ 404) / ValueError (→ 400, already done).
+        """
+        item = await self.db.get(PracticeSentence, practice_id)
+        if item is None or item.user_id != user_id:
+            raise LookupError("Practice item not found")
+        if item.status == "done":
+            raise ValueError("Practice item is already completed")
+        item.status = "rejected"
+        item.reject_reason = reason.strip()
+        item.completed_at = datetime.now(UTC)  # doubles as rejected-at
+        await self.db.commit()
 
     async def _pending(self, user_id: int) -> list[PracticeSentence]:
         return list(
@@ -351,6 +372,9 @@ class PracticeService:
             for group in groups
         ]
 
+        rejections = await self._rejections(user_id)
+        learner_sentences = await self._learner_sentences(user_id)
+
         created = 0
         for ids, targets in plans:
             history = await self._history(user_id, set(ids))
@@ -358,9 +382,11 @@ class PracticeService:
                 result = await generate_practice(
                     targets=targets,
                     bank=bank,
+                    learner_sentences=learner_sentences,
                     history=history,
                     topic=random.choice(topics),
                     vocab=random.sample(vocab_words, min(VOCAB_BAIT, len(vocab_words))),
+                    rejections=rejections,
                 )
                 self.db.add(
                     PracticeSentence(
@@ -385,12 +411,18 @@ class PracticeService:
         return created
 
     async def _history(self, user_id: int, target_ids: set[int]) -> list[str]:
-        """Recent practice sentences sharing a target point — the anti-rote context."""
+        """Recent practice sentences sharing a target point — the anti-rote context.
+
+        Rejected items are excluded — they go into the rejections section instead.
+        """
         rows = (
             (
                 await self.db.execute(
                     select(PracticeSentence)
-                    .where(PracticeSentence.user_id == user_id)
+                    .where(
+                        PracticeSentence.user_id == user_id,
+                        PracticeSentence.status != "rejected",
+                    )
                     .order_by(PracticeSentence.created_at.desc())
                     .limit(100)
                 )
@@ -401,6 +433,44 @@ class PracticeService:
         return [
             r.japanese for r in rows if set(r.target_point_ids) & target_ids
         ][:HISTORY_PER_POINT]
+
+    async def _learner_sentences(self, user_id: int) -> list[str]:
+        """A sample of the learner's own production sentences — the vocabulary-level anchor.
+
+        Random sample (not newest-first) so the anchor reflects their whole range, not the
+        last topic they binged on.
+        """
+        rows = (
+            (
+                await self.db.execute(
+                    select(ProductionSentence.japanese).where(
+                        ProductionSentence.user_id == user_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return random.sample(list(rows), min(LEARNER_SAMPLE, len(rows)))
+
+    async def _rejections(self, user_id: int) -> list[tuple[str, str]]:
+        """Recent rejected sentences + reasons — the avoid-context (any target, newest first)."""
+        rows = (
+            (
+                await self.db.execute(
+                    select(PracticeSentence)
+                    .where(
+                        PracticeSentence.user_id == user_id,
+                        PracticeSentence.status == "rejected",
+                    )
+                    .order_by(PracticeSentence.completed_at.desc())
+                    .limit(REJECTIONS_FED)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [(r.japanese, r.reject_reason or "") for r in rows]
 
     async def _bait_vocab(self, user_id: int) -> list[str]:
         """The user's apprentice/guru vocab — words that still need production exposure."""
@@ -460,7 +530,7 @@ class PracticeService:
             item = await self.db.get(PracticeSentence, practice_id)
             if item is None or item.user_id != user_id:
                 raise LookupError("Practice item not found")
-            if item.status == "done":
+            if item.status != "pending":
                 raise ValueError("Practice item is already completed")
 
             targets = await self._target_points(item)
@@ -562,7 +632,7 @@ class PracticeService:
         item = await self.db.get(PracticeSentence, practice_id)
         if item is None or item.user_id != user_id:
             raise LookupError("Practice item not found")
-        if item.status != "done":
+        if item.status == "pending":  # done/rejected → no-op
             item.status = "done"
             item.completed_at = datetime.now(UTC)
             await self.db.commit()

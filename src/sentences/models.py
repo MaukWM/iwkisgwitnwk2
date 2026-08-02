@@ -187,6 +187,9 @@ class PracticeSentence(Base):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending"
     )
+    # Why the user rejected this item (status='rejected'). Recent rejections + reasons are fed
+    # back into the generator prompt as avoid-context.
+    reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Whether the first (scoring) attempt happened is derived from the log: rows with
     # practice_sentence_id == id exist. Only that first attempt scores — retries are
     # contaminated signal (the user has seen the reference).

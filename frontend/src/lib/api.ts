@@ -302,6 +302,13 @@ export const api = {
   completePractice: (practiceId: number) =>
     requestNoBody(`/me/practice/${practiceId}/complete`, { method: 'POST' }),
 
+  // Reject a bad generated sentence with a why — stored and fed to future generations.
+  rejectPractice: (practiceId: number, reason: string) =>
+    requestNoBody(`/me/practice/${practiceId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+
   // Lessons
   completeLessons: (data: { item_ids: { item_type: string; item_id: number }[] }) =>
     request<unknown>('/me/lessons', {

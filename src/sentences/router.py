@@ -18,6 +18,7 @@ from src.sentences.schemas import (
     GrammarPointListResponse,
     GrammarPointUpdateRequest,
     PracticeQueueResponse,
+    PracticeRejectRequest,
     PracticeReviewCreateRequest,
     PracticeReviewResponse,
     PracticeTopicsResponse,
@@ -715,6 +716,39 @@ async def submit_practice_review(
         raise HTTPException(
             status_code=500,
             detail="An error occurred while submitting the attempt. Please try again later.",
+        ) from e
+
+
+@practice_router.post("/{practice_id}/reject", status_code=204)
+@limiter.limit(settings.rate_limit_write)
+async def reject_practice_item(
+    request: Request,
+    practice_id: int,
+    payload: PracticeRejectRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Reject a generated item with a why — stored and fed to future generations. Instant."""
+    try:
+        service = PracticeService(db)
+        await service.reject(
+            user_id=current_user.id, practice_id=practice_id, reason=payload.reason
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except SQLAlchemyError as e:
+        logger.error(
+            "database_error_in_reject_practice_item_endpoint",
+            user_id=current_user.id,
+            practice_id=practice_id,
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while rejecting the item. Please try again later.",
         ) from e
 
 
