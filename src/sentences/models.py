@@ -48,6 +48,16 @@ class ProductionSentence(Base):
     )
     # No `validated` column: the EN/JP pair is validated server-side at creation (POST /sentences),
     # inserted only on pass. A persisted row is valid by construction.
+    # Provenance: 'manual' = hand-written, 'practice' = adopted from the generated practice
+    # queue (origin_practice_id back-references the practice item; SET NULL if it ever goes).
+    source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="manual", server_default="manual"
+    )
+    origin_practice_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("practice_sentences.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

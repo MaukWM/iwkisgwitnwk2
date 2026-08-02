@@ -12,7 +12,11 @@ from src.core.constants import ItemType, Politeness
 from src.llm.judge import JudgeResult
 from src.llm.validate import PairValidation
 from src.progress.models import UserItemProgress
-from src.sentences.models import ProductionSentence, ProductionSentenceReviewLog
+from src.sentences.models import (
+    PracticeSentence,
+    ProductionSentence,
+    ProductionSentenceReviewLog,
+)
 from src.sentences.schemas import (
     SentenceCreateRequest,
     SentenceReviewCreateRequest,
@@ -346,6 +350,43 @@ async def test_create_valid_inserts_as_pending_lesson(db_session, monkeypatch) -
     # ...and it shows up as a pending lesson.
     lessons = await SentenceService(db_session).get_lessons(user.id)
     assert [x.sentence_id for x in lessons] == [resp.sentence_id]
+    # Hand-written → source 'manual', no practice back-reference.
+    row = await db_session.get(ProductionSentence, resp.sentence_id)
+    assert row.source == "manual" and row.origin_practice_id is None
+
+
+async def test_create_with_practice_id_stamps_provenance(db_session, monkeypatch) -> None:
+    async def fake_validate(en: str, ja: str, **kwargs) -> PairValidation:
+        return PairValidation(valid=True, reason="", politeness="casual")
+
+    monkeypatch.setattr("src.sentences.service.validate_pair", fake_validate)
+    user = await _user(db_session)
+    practice = PracticeSentence(
+        user_id=user.id,
+        english="I ate.",
+        japanese="食べたんです",
+        politeness=Politeness.MIXED,
+        target_point_ids=[],
+    )
+    db_session.add(practice)
+    await db_session.flush()
+
+    resp = await SentenceService(db_session).create(
+        user.id,
+        SentenceCreateRequest(
+            english="I ate.", japanese="食べたんです", practice_id=practice.id
+        ),
+    )
+    row = await db_session.get(ProductionSentence, resp.sentence_id)
+    assert row.source == "practice" and row.origin_practice_id == practice.id
+
+    # Someone else's (or missing) practice item → rejected before any LLM call.
+    other = await _user(db_session)
+    with pytest.raises(ValueError, match="not found"):
+        await SentenceService(db_session).create(
+            other.id,
+            SentenceCreateRequest(english="x", japanese="ｘ", practice_id=practice.id),
+        )
 
 
 async def test_update_revalidates_and_keeps_srs(db_session, monkeypatch) -> None:

@@ -13,6 +13,9 @@ class SentenceCreateRequest(BaseModel):
 
     english: str = Field(..., min_length=1, description="English prompt")
     japanese: str = Field(..., min_length=1, description="Japanese reference answer")
+    practice_id: int | None = Field(
+        None, gt=0, description="Set when adopting a generated practice item (provenance)"
+    )
 
 
 class SentenceGrammarItem(BaseModel):
@@ -108,6 +111,7 @@ class SentenceListItem(BaseModel):
     politeness: Politeness
     srs_stage: int | None = Field(None, ge=1, le=9)
     next_review_at: datetime | None
+    source: str = Field("manual", description="'manual' or 'practice' (adopted from generated)")
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -176,6 +180,7 @@ class SentenceDetailResponse(BaseModel):
     politeness: Politeness
     srs_stage: int | None = Field(None, ge=1, le=9)  # None while a pending lesson
     next_review_at: datetime | None
+    source: str = Field("manual", description="'manual' or 'practice' (adopted from generated)")
     created_at: datetime
     reviews: list[SentenceReviewLogItem]
     grammar: list[SentenceGrammarItem] = Field(

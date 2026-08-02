@@ -93,7 +93,8 @@ export function PracticeReviewPage() {
   // grammar-extracted, enters as a pending lesson) — a tricky generated sentence becomes
   // permanent practice material, while dynamic practice keeps generating fresh variants.
   const adoptMutation = useMutation({
-    mutationFn: () => api.createProductionSentence(card.item.english, result!.reference),
+    mutationFn: () =>
+      api.createProductionSentence(card.item.english, result!.reference, card.item.practice_id),
     onSuccess: () => {
       setAdoptedIds((prev) => new Set(prev).add(card.item.practice_id));
       queryClient.invalidateQueries({ queryKey: ['sentences'] });

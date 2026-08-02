@@ -26,6 +26,7 @@ from src.reviews.srs import calculate_next_review, truncate_to_hour
 from src.sentences.models import (
     GrammarPoint,
     GrammarPointReviewLog,
+    PracticeSentence,
     ProductionSentence,
     ProductionSentenceReviewLog,
     SentenceGrammarPoint,
@@ -135,6 +136,14 @@ class SentenceService:
         No SRS progress row yet — the sentence waits as a lesson (get_lessons) until the user
         learns it (complete_lessons), which is when it enters SRS at Apprentice 1.
         """
+        # Provenance: adopting a generated practice item stamps source='practice' + back-ref.
+        origin_practice_id = None
+        if request.practice_id is not None:
+            practice = await self.db.get(PracticeSentence, request.practice_id)
+            if practice is None or practice.user_id != user_id:
+                raise ValueError("Practice item not found")
+            origin_practice_id = practice.id
+
         bank, by_key = await self._load_grammar_bank(user_id)
         result = await validate_pair(request.english, request.japanese, bank=bank)
         if not result.valid:
@@ -147,6 +156,8 @@ class SentenceService:
             english=request.english,
             japanese=request.japanese,
             politeness=politeness,
+            source="practice" if origin_practice_id is not None else "manual",
+            origin_practice_id=origin_practice_id,
         )
         self.db.add(sentence)
         await self.db.flush()
@@ -346,6 +357,7 @@ class SentenceService:
                 politeness=sentence.politeness,
                 srs_stage=progress.srs_stage if progress else None,
                 next_review_at=progress.next_review_at if progress else None,
+                source=sentence.source,
                 created_at=sentence.created_at,
             )
             for sentence, progress in rows
@@ -391,6 +403,7 @@ class SentenceService:
             politeness=sentence.politeness,
             srs_stage=progress.srs_stage if progress else None,  # None = pending lesson
             next_review_at=progress.next_review_at if progress else None,
+            source=sentence.source,
             created_at=sentence.created_at,
             reviews=[SentenceReviewLogItem.model_validate(log) for log in logs],
             grammar=[

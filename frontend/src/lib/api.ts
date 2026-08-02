@@ -209,10 +209,11 @@ export const api = {
 
   getSentence: (id: number) => request<SentenceDetail>(`/me/sentences/${id}`),
 
-  createProductionSentence: (english: string, japanese: string) =>
+  // practiceId marks the sentence as adopted from a generated practice item (provenance).
+  createProductionSentence: (english: string, japanese: string, practiceId?: number) =>
     request<SentenceCreated>('/me/sentences', {
       method: 'POST',
-      body: JSON.stringify({ english, japanese }),
+      body: JSON.stringify({ english, japanese, practice_id: practiceId ?? null }),
     }),
 
   // Edit a production sentence's EN/JP pair (re-validated; politeness re-derived). SRS kept.
@@ -487,6 +488,7 @@ export interface SentenceListItem {
   politeness: Politeness;
   srs_stage: number | null; // null = pending lesson (not yet learned)
   next_review_at: string | null;
+  source: 'manual' | 'practice'; // 'practice' = adopted from a generated practice item
   created_at: string;
 }
 
